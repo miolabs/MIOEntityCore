@@ -19,9 +19,19 @@ public class MECEntityCache<T>
 {
     var body       : [ String: [ UUID: T ]   ] = [:]
     var entities   : [ String: [ Set<UUID> ] ] = [:]
-    var super_class: [ String: Set<String>   ] = [:]
+    var child_class: [ String: Set<String>   ] = [:]
     
-    public init ( ) { }
+    public init ( _ superClasses: [ String: [String] ] = [:] ) {
+        for (childCls, cls) in superClasses {
+            for parentClass in cls {
+                if child_class[ parentClass ] == nil {
+                    child_class[ parentClass ] = Set( )
+                }
+                
+                child_class[ parentClass ]!.insert( childCls )
+            }
+        }
+    }
     
 //    public func clone ( ) -> MECEntityCache<T> {
 //        let copy = MECEntityCache( ) ;
@@ -45,8 +55,8 @@ public class MECEntityCache<T>
            return true
         }
         
-        if super_class[ entityName ] != nil {
-            for cls in super_class[ entityName ]! {
+        if child_class[ entityName ] != nil {
+            for cls in child_class[ entityName ]! {
                 if contains_entity( cls, entityID ) {
                     return true
                 }
@@ -71,8 +81,8 @@ public class MECEntityCache<T>
             return v
         }
         
-        if super_class[ entityName ] != nil {
-            for cls in super_class[ entityName ]! {
+        if child_class[ entityName ] != nil {
+            for cls in child_class[ entityName ]! {
                 if let v = value_entity( cls, entityID ) {
                     return v
                 }
@@ -104,18 +114,6 @@ public class MECEntityCache<T>
 //            insert_entity( entityName, entityID )
 //        }
 //    }
-
-    public func insert ( _ entityName: String, _ uuid: UUID, _ entityBody: T, _ parentClasses: [String] ) {
-        insert( entityName, uuid, entityBody )
-        
-        for cls in parentClasses {
-            if super_class[ cls ] == nil {
-                super_class[ cls ] = Set( )
-            }
-            
-            super_class[ cls ]!.insert( entityName )
-        }
-    }
 
     public func insert ( _ entityName: String, _ uuid: UUID, _ entityBody: T ) {
         assert_insert( entityName )

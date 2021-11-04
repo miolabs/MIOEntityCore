@@ -16,9 +16,9 @@ final class MIOEntityCacheTests: XCTestCase {
     
     func testContainsInherit() throws {
         let entity1_id = UUID( )
-        let cache = MECEntityCache<[String:Any]>( )
+        let cache = MECEntityCache<[String:Any]>(  [ "C": [ "B", "A" ] ]  )
         
-        cache.insert( "C", entity1_id, ["hello": "world"], [ "A", "B" ] )
+        cache.insert( "C", entity1_id, ["hello": "world"] )
         
         XCTAssertTrue( cache.contains( "A", entity1_id ) )
         XCTAssertTrue( cache.contains( "B", entity1_id ) )
