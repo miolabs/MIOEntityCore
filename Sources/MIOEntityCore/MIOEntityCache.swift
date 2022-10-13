@@ -97,6 +97,15 @@ public class MECEntityCache<T>
     }
 
     
+    public func values ( _ entityName: String ) -> [T] {
+        if let dict = body[ entityName ] {
+            return Array( dict.values )
+        }
+    
+        return []
+    }
+
+    
     public func diff_ids ( _ entityName: String, _ ids: Set<UUID> ) -> Set<UUID> {
         if entities[ entityName ] == nil { return ids }
         
@@ -131,7 +140,16 @@ public class MECEntityCache<T>
         entities[ entityName ]![ uuid.cacheIndex( ) ].insert( uuid )
         body[ entityName ]![ uuid ] = entityBody
     }
+
     
+    public func remove ( _ entityName: String, _ uuid: UUID ) {
+        if entities[ entityName ] == nil {
+            return
+        }
+        
+        entities[ entityName ]![ uuid.cacheIndex( ) ].remove( uuid )
+    }
+
     
 //    func filter ( _ entityName: String, _ fetched: [t_db_row] ) -> [t_db_row] {
 //        if let cache = entities[ entityName ] {
