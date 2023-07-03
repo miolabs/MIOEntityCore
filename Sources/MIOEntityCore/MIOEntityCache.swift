@@ -17,11 +17,14 @@ extension UUID {
 
 public class MECEntityCache<T>
 {
-    var body       : [ String: [ UUID: T ]   ] = [:]
-    var entities   : [ String: [ Set<UUID> ] ] = [:]
-    var child_class: [ String: Set<String>   ] = [:]
+    var body        : [ String: [ UUID: T ]   ] = [:]
+    var entities    : [ String: [ Set<UUID> ] ] = [:]
+    // var parent_class: [ String: [String]      ] = [:] // for a given entity A, returns all the super entities of A
+    var child_class : [ String: Set<String>   ] = [:]
     
     public init ( _ superClasses: [ String: [String] ] = [:] ) {
+        // parent_class = superClasses
+        
         for (childCls, cls) in superClasses {
             for parentClass in cls {
                 if child_class[ parentClass ] == nil {
@@ -148,6 +151,12 @@ public class MECEntityCache<T>
         }
         
         entities[ entityName ]![ uuid.cacheIndex( ) ].remove( uuid )
+        
+        if body[ entityName ] == nil {
+            return
+        }
+        
+        body[ entityName ]!.removeValue( forKey: uuid )
     }
 
     
