@@ -5,7 +5,7 @@
 //  Created by Javier Segura Perez on 15/9/24.
 //
 
-//#if os(WASI)
+#if os(WASI)
 
 import Foundation
 
@@ -18,5 +18,5 @@ public func MECInsert ( _ entityName: String, _ uuid: UUID, _ entityBody: [Strin
     print("MECInsert DONE!")
 }
 
-//#endif
+#endif
 
