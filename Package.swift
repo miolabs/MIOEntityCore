@@ -6,7 +6,7 @@ import PackageDescription
 #if os(WASI)
 let dependencies: [Package.Dependency] = [] ////[.package(url: "https://github.com/swiftwasm/carton", from: "1.0.0")]
 #else
-let dependencies: [Package.Dependency] = [.package(url: "https://github.com/miolabs/MIOCore.git", branch: "master" ),]
+let dependencies: [Package.Dependency] = [.package(url: "https://github.com/miolabs/MIOCore.git", branch: "develop" ),]
 #endif
 
 let package = Package(
