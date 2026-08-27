@@ -10,13 +10,15 @@ import XCTest
 final class MECCacheTests: XCTestCase {
     // Document (abstract) <- Product (concrete) <- MenuItem (concrete)
     private struct Model {
-        let document = MECEntity( name: "Document", isAbstract: true )
-        let product  = MECEntity( name: "Product" )
-        let menuItem = MECEntity( name: "MenuItem" )
+        let document: MECEntity
+        let product: MECEntity
+        let menuItem: MECEntity
 
+        // Roots first: a parent has to exist before the child that names it.
         init ( ) {
-            product.setParent( document )
-            menuItem.setParent( product )
+            document = MECEntity( name: "Document", isAbstract: true )
+            product  = MECEntity( name: "Product", superEntity: document )
+            menuItem = MECEntity( name: "MenuItem", superEntity: product )
         }
     }
 

@@ -41,12 +41,24 @@ final class MECModelTests: XCTestCase {
         XCTAssertEqual( model.entities.count, 2 )
     }
 
-    func testEntitiesByNameIndexIsReplaceable ( ) throws {
+    /// The index used to be replaceable wholesale through an `open` backing
+    /// property, which let it drift out of step with ``MECModel/entities``. It is
+    /// private now, and the only ways in are the initialiser and `addEntity`.
+    func testTheIndexCannotDriftFromTheList ( ) throws {
         let model = MECModel( entities: [ MECEntity( name: "Product" ) ] )
+        model.addEntity( MECEntity( name: "MenuItem" ) )
 
-        model._entities_by_name = [ : ]
+        XCTAssertEqual( model.entities.count, model.entitiesByName.count )
+    }
 
-        XCTAssertTrue( model.entitiesByName.isEmpty )
+    /// The lookup a relationship needs: they hold the destination's name, so
+    /// resolving one is the model's job.
+    func testEntityNamed ( ) throws {
+        let product = MECEntity( name: "Product" )
+        let model   = MECModel( entities: [ product ] )
+
+        XCTAssertTrue( model.entity( named: "Product" ) === product )
+        XCTAssertNil( model.entity( named: "Nowhere" ) )
     }
 
     // MARK: - MECEntity
@@ -56,48 +68,56 @@ final class MECModelTests: XCTestCase {
         XCTAssertTrue( MECEntity( name: "Document", isAbstract: true ).isAbstract )
     }
 
-    func testSetParentWiresBothDirections ( ) throws {
+    func testTheParentIsPassedAtInit ( ) throws {
         let product  = MECEntity( name: "Product" )
-        let menuItem = MECEntity( name: "MenuItem" )
-
-        menuItem.setParent( product )
+        let menuItem = MECEntity( name: "MenuItem", superEntity: product )
 
         XCTAssertTrue( menuItem.superEntity === product )
-        XCTAssertEqual( product.subEntities.count, 1 )
-        XCTAssertTrue( product.subEntities.first === menuItem )
+        XCTAssertNil( product.superEntity )
     }
 
-    func testSetParentNilLeavesTheOldParentsSubEntities ( ) throws {
+    /// The downward list is derived, so it cannot drift from the upward links
+    /// the way an appended-to array could.
+    func testSubEntitiesComeFromTheModel ( ) throws {
         let product  = MECEntity( name: "Product" )
-        let menuItem = MECEntity( name: "MenuItem" )
+        let menuItem = MECEntity( name: "MenuItem", superEntity: product )
+        let model    = MECModel( entities: [ product, menuItem ] )
 
-        menuItem.setParent( product )
-        menuItem.setParent( nil )
-
-        XCTAssertNil( menuItem.superEntity )
-        XCTAssertEqual( product.subEntities.count, 1 )
+        XCTAssertEqual( model.subEntities( of: product ).map( \.name ), [ "MenuItem" ] )
+        XCTAssertTrue( model.subEntities( of: menuItem ).isEmpty )
     }
 
-    func testSetParentTwiceAppendsToBothParents ( ) throws {
-        let document = MECEntity( name: "Document" )
-        let product  = MECEntity( name: "Product" )
-        let menuItem = MECEntity( name: "MenuItem" )
+    /// An entity added later is answered for immediately, because nothing was
+    /// cached at wiring time. The three tests this replaced covered the opposite
+    /// situation: `setParent( nil )` left the child in the old parent's list, and
+    /// calling it twice put the child in two parents at once. Neither state is
+    /// reachable now.
+    func testSubEntitiesSeeAnEntityAddedLater ( ) throws {
+        let product = MECEntity( name: "Product" )
+        let model   = MECModel( entities: [ product ] )
 
-        menuItem.setParent( document )
-        menuItem.setParent( product )
+        XCTAssertTrue( model.subEntities( of: product ).isEmpty )
 
-        XCTAssertTrue( menuItem.superEntity === product )
-        XCTAssertEqual( document.subEntities.count, 1 )
-        XCTAssertEqual( product.subEntities.count, 1 )
+        model.addEntity( MECEntity( name: "MenuItem", superEntity: product ) )
+
+        XCTAssertEqual( model.subEntities( of: product ).map( \.name ), [ "MenuItem" ] )
+    }
+
+    /// A model only answers for the entities it holds. An entity built outside
+    /// one has no subentities, whoever points at it.
+    func testSubEntitiesOnlyCountsTheModelsOwn ( ) throws {
+        let product = MECEntity( name: "Product" )
+        let stray   = MECEntity( name: "Stray", superEntity: product )
+        let model   = MECModel( entities: [ product ] )
+
+        XCTAssertTrue( model.subEntities( of: product ).isEmpty, "\(stray.name) is not in this model" )
     }
 
     func testHierarchyDrivesCacheInheritance ( ) throws {
         let product  = MECEntity( name: "Product" )
-        let menuItem = MECEntity( name: "MenuItem" )
+        let menuItem = MECEntity( name: "MenuItem", superEntity: product )
         let model    = MECModel( entities: [ product, menuItem ] )
         let id       = UUID( )
-
-        menuItem.setParent( product )
 
         let cache = MECCache<[String:Any]>( )
         _ = cache.insert( entity: model.entitiesByName[ "MenuItem" ]!, id: id, body: [ : ] )

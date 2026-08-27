@@ -76,7 +76,7 @@ public class MECCacheObject
 /// ```swift
 /// let product   = MECEntity( name: "Product" )
 /// let menu_item = MECEntity( name: "MenuItem" )
-/// menu_item.setParent( product )
+/// let menu_item = MECEntity( name: "MenuItem", superEntity: product )
 ///
 /// let cache = MECCache<[String:Any]>( )
 /// let obj   = cache.insert( entity: menu_item, id: item_id, body: [ "name": "Latte" ], version: 3 )

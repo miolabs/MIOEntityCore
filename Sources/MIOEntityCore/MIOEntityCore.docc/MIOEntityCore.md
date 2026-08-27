@@ -1,8 +1,124 @@
 # ``MIOEntityCore``
 
-Keep track of a batch of objects: which ones you have, and what type each one is.
+Describe your entities, render their values, and keep track of a batch of them.
 
 ## Overview
+
+The package does two jobs. One describes what your objects
+look like and turns their values into JSON. The other keeps track of a batch of objects in memory:
+which ones you have, and what type each one is.
+
+Both halves talk about entities, ids and bodies. An **entity** is a type name, like `Product`. An
+**id** is the UUID identifying one particular object. A **body** is whatever you keep alongside it: a
+database row, a decoded payload, or just `true` when all you want is a list of ids.
+
+## The entity
+
+### Describing an entity
+
+An entity carries more than a name. Attributes and relationships come with it, which is what lets a
+value be rendered without also holding the model it came from.
+
+```swift
+let folder = MECEntity( name: "Folder",
+                        attributes: [ MECAttribute( name: "identifier", type: .uuid ),
+                                      MECAttribute( name: "title", type: .string ),
+                                      MECAttribute( name: "count", type: .integer64,
+                                                    defaultValueString: "0" ) ],
+                        relationships: [ MECRelationship( name: "todos",
+                                                          destinationEntityName: "Todo",
+                                                          inverseName: "folder",
+                                                          isToMany: true ) ] )
+```
+
+A relationship names its destination rather than holding it. Inverses are cyclic by definition, so
+references would mean a retain cycle or an `unowned` and the crash after it. Resolve one with
+``MECModel/entity(named:)``.
+
+A default is text, the way a model file records it. `"1"` is a valid default for both a boolean and
+an integer, and only the declared type says which; ``MECAttributeType/value(fromDefaultText:)`` reads
+it back.
+
+Inherited attributes are not merged in. An entity lists its own, and walking
+``MECEntity/superEntity`` is the caller's job, because a flattened set means different things in
+different contexts.
+
+### Building a model from a list of names
+
+A model with two or three entities is fine to write out by hand. A real one has dozens, and you
+build one every pass, so it is worth wrapping up once.
+
+Nothing here ships with the package. Your types are yours to describe, so this is an extension you
+write in your own project:
+
+```swift
+extension MECModel
+{
+    /// Builds a model from a name-to-parent description of your types.
+    convenience init ( _ hierarchy: [String: String?], abstract: Set<String> = [] ) {
+        var built: [String: MECEntity] = [:]
+
+        // A parent has to exist before the child that names it, so each one is
+        // made on demand and the recursion takes care of the order.
+        func make ( _ name: String ) -> MECEntity {
+            if let already = built[ name ] { return already }
+
+            let parent = hierarchy[ name ].flatMap { $0 }.map { make( $0 ) }
+            let entity = MECEntity( name: name,
+                                    isAbstract: abstract.contains( name ),
+                                    superEntity: parent )
+            built[ name ] = entity
+            return entity
+        }
+
+        for name in hierarchy.keys { _ = make( name ) }
+        self.init( entities: Array( built.values ) )
+    }
+}
+```
+
+The ordering is the part to keep whatever shape you give this. A ``MECEntity`` takes its parent at
+`init` and cannot be changed afterwards, so a hierarchy is built from the roots down. Making each
+entity on demand is one way to get that for free.
+
+Building a model is then one line, and a name that only ever appears as a parent still gets created:
+
+```swift
+let model = MECModel( [ "MenuItem": "Product", "Combo": "MenuItem" ] )
+
+model.entity( named: "Product" )        // exists, even though it was never a key
+```
+
+Mark abstract types as you go, with `MECModel( hierarchy, abstract: [ "Document" ] )`. It changes what
+you are able to look up later, which the next section covers.
+
+Keep the model and reuse it. ``MECCache`` does not hold on to it for you: you pass entity values in on
+every call, so it is on you to keep handing it entities from the same model.
+
+### Rendering values
+
+``MECAttributeType`` renders one value, and ``MECPolicy`` decides how.
+
+```swift
+let price = MECAttribute( name: "price", type: .decimal, isOptional: true )
+let note  = MECAttribute( name: "note", type: .string, isOptional: true )
+
+try price.jsonValue( from: Decimal( string: "1.50" )! )   // "1.5", a string
+try note.jsonValue( from: nil )                           // NSNull
+```
+
+The order is the model's own: an absent value falls back to the default, and only an absent value
+with no default on a required attribute is an error. An absent optional renders as `NSNull`, and
+``MECPolicy/includeNulls`` decides whether the key survives into the payload.
+
+``MECPolicy`` holds the choices that change what a client sees, so none of them are hard-coded:
+uppercase UUIDs, decimals as strings so a reader cannot quietly turn money into a `Double`, ISO 8601
+dates with fractional seconds because dropping them reorders records written in the same second.
+
+Every switch over ``MECAttributeType`` is written without a `default:`. Adding a case breaks the
+build everywhere a decision is needed, rather than falling through to something plausible.
+
+## Keeping track of a batch
 
 Say a batch of changes arrives and you have to apply it. Some are products, some are orders, some are
 order lines, all mixed together. Before you can do anything useful you keep needing the same two
@@ -15,13 +131,8 @@ answers:
 `MIOEntityCore` gives you two small helpers for exactly that. You put things in, then ask questions
 about what you put in.
 
-Three words show up throughout. An **entity** is a type name, like `Product`. An **id** is the UUID
-identifying one particular object. A **body** is whatever you want to keep alongside it: a database
-row, a decoded payload, a plain `UUID`, or just `true` when all you want is a list of ids. The
-examples below use database rows, but any type will do.
-
 Both helpers live entirely in memory. Nothing is written anywhere, and everything you put in is gone
-once you let go of the helper.
+once you let go of the helper. The examples below use database rows as bodies, but any type will do.
 
 The useful part is that they understand your **type hierarchy**. If a `MenuItem` is a kind of
 `Product`, you can store a `MenuItem` and later find it by asking for a `Product`. A plain dictionary
@@ -30,7 +141,7 @@ cannot do that for you.
 > Important: Neither one is safe to use from several threads at once. Use one from a single thread, or
 > add your own locking around it.
 
-## Which one do I use?
+### Which one do I use?
 
 Pick by the question you need answered.
 
@@ -58,7 +169,7 @@ you just handed it, on the assumption that you already have it. Changing a store
 Get that backwards and nothing crashes. You just keep reading old data, and that is hard to trace
 back to its cause.
 
-## Sorting a batch into groups
+### Sorting a batch into groups
 
 You have a mixed batch and want to handle each type in one go, instead of one at a time. That is
 what ``MECEntityCache`` is for.
@@ -91,9 +202,9 @@ it does not have to conform to a protocol, and it can be as simple as a `Bool`. 
 Notice you get things back out under the same name you put them in under. That is the ordinary way to
 use this one, and it is why ``MECEntityCache/init(_:)`` is usually called with no arguments: the type
 hierarchy never comes up. You only need to describe your hierarchy if you intend to store a `MenuItem`
-and then go looking for it as a `Product`, which the next section but one covers.
+and then go looking for it as a `Product`, which "How the type hierarchy works" covers.
 
-## Comparing several sets at once
+### Comparing several sets at once
 
 The other helper is for a trickier situation. A batch of changes has arrived, and for each one you
 need to work out whether it is new, an edit, or a deletion. That means holding **several sets at the same time** and asking which set
@@ -126,66 +237,7 @@ only care about *which ids are in the list* and have nothing to keep alongside t
 `MECCache<Bool>` and store `true` as a placeholder body. You get a set that still understands your
 type hierarchy.
 
-## Building the model
-
-``MECCache`` needs a ``MECModel``, and the example above made one with a single entity. Real models
-have more than that, and you will be building one every time you start a pass, so it is worth wrapping
-up once.
-
-Nothing here ships with the package. Your types are yours to describe, so this is an extension you
-write in your own project:
-
-```swift
-extension MECModel
-{
-    /// Builds a model from a name-to-parent description of your types.
-    convenience init ( _ hierarchy: [String: String?], abstract: Set<String> = [] ) {
-        var entities: [String: MECEntity] = [:]
-
-        // First pass: every entity has to exist before anything can point at it.
-        for (name, parent) in hierarchy {
-            entities[ name ] = entities[ name ]
-                ?? MECEntity( name: name, isAbstract: abstract.contains( name ) )
-
-            if let parent {
-                entities[ parent ] = entities[ parent ]
-                    ?? MECEntity( name: parent, isAbstract: abstract.contains( parent ) )
-            }
-        }
-
-        // Second pass: now every parent exists, so the links can be made.
-        for (name, parent) in hierarchy {
-            guard let parent,
-                  let child        = entities[ name ],
-                  let parentEntity = entities[ parent ] else { continue }
-
-            child.setParent( parentEntity )
-        }
-
-        self.init( entities: Array( entities.values ) )
-    }
-}
-```
-
-The two passes are the part worth keeping whatever shape you give this. You cannot point at an entity
-that does not exist yet, so everything gets created before anything gets linked.
-
-After that, building a model is one line, and a name that only ever appears as a parent still gets
-created:
-
-```swift
-let model = MECModel( [ "MenuItem": "Product", "Combo": "MenuItem" ] )
-
-model.entitiesByName[ "Product" ]        // exists, even though it was never a key
-```
-
-Mark abstract types as you go, with `MECModel( hierarchy, abstract: [ "Document" ] )`. It changes what
-you are able to look up later, which the next section covers.
-
-Keep the model and reuse it. ``MECCache`` does not hold on to it for you: you pass entity values in on
-every call, so it is on you to keep handing it entities from the same model.
-
-## How the type hierarchy works
+### How the type hierarchy works
 
 Both helpers know that a `MenuItem` is a kind of `Product`, so that storing one and asking for the
 other works. They get there differently, and the difference shows up in which methods respect it.
@@ -240,13 +292,13 @@ cache.remove( "Product", rowID )          // does nothing, it is filed under Men
 
 So when you are relying on the hierarchy, stay with `contains` and `value`.
 
-## Worth paying attention to
+### Worth paying attention to
 
 All of it is intended behaviour. It is here because none of it is guessable from the method names.
 
 **An abstract type cannot be used to look things up.** Mark a type abstract and ``MECCache`` skips it
 when filing, so searching by it comes up empty even though the object is right there. Use
-`isAbstract: false` for anything you intend to search by. See ``MECEntity/init(name:isAbstract:)``.
+`isAbstract: false` for anything you intend to search by. See ``MECEntity/init(name:isAbstract:superEntity:attributes:relationships:)``.
 
 **Storing the same thing twice does opposite things** in the two helpers. Covered above, and repeated
 here because it is the one that costs real time.
@@ -274,12 +326,22 @@ itself next time it runs into it, so it is rarely something you notice.
 
 ### Describing your types
 
-A short list of type names and what each one is based on. Only ``MECCache`` needs this, because it
-asks you for a ``MECEntity`` rather than a name. ``MECEntityCache`` takes plain strings and does not
-use these at all.
+A model, its entities, and what each entity is made of. ``MECCache`` needs the first two, because it
+asks for a ``MECEntity`` rather than a name; the codecs need the rest. ``MECEntityCache`` takes plain
+strings and uses none of it.
 
 - ``MECModel``
 - ``MECEntity``
+- ``MECAttribute``
+- ``MECRelationship``
+- ``MECAttributeType``
+
+### Rendering values
+
+One value out, to JSON. ``MECPolicy`` carries the choices; ``MECError`` is what a refusal looks like.
+
+- ``MECPolicy``
+- ``MECError``
 
 ### Sorting a batch into groups
 
